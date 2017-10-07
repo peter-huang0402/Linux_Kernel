@@ -1,0 +1,246 @@
+diff -Naur ./linux-4.4.1/arch/ia64/include/asm/processor.h ./linux-4.4.1_tmp/arch/ia64/include/asm/processor.h
+--- ./linux-4.4.1/arch/ia64/include/asm/processor.h	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/arch/ia64/include/asm/processor.h	2017-10-07 21:06:28.172062448 +0800
+@@ -202,6 +202,7 @@
+ 	unsigned int ptce_count[2];
+ 	unsigned int ptce_stride[2];
+ 	struct task_struct *ksoftirqd;	/* kernel softirq daemon for this CPU */
++        struct task_struct *my_ksoftirqd;   // petere ksoftirqd
+ 
+ #ifdef CONFIG_SMP
+ 	unsigned long loops_per_jiffy;
+diff -Naur ./linux-4.4.1/include/linux/kthread.h ./linux-4.4.1_tmp/include/linux/kthread.h
+--- ./linux-4.4.1/include/linux/kthread.h	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/include/linux/kthread.h	2017-10-07 20:52:01.433621276 +0800
+@@ -50,6 +50,8 @@
+ void kthread_parkme(void);
+ 
+ int kthreadd(void *unused);
++//added by Peter for CS680 homework #6
++int __my_kernel_thread(void *data);
+ extern struct task_struct *kthreadd_task;
+ extern int tsk_fork_get_node(struct task_struct *tsk);
+ 
+diff -Naur ./linux-4.4.1/init/main.c ./linux-4.4.1_tmp/init/main.c
+--- ./linux-4.4.1/init/main.c	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/init/main.c	2017-10-07 21:10:34.580286945 +0800
+@@ -383,9 +383,48 @@
+ 
+ static __initdata DECLARE_COMPLETION(kthreadd_done);
+ 
++
++//added by Peter for CS680 homework #6
++static void my_kernel_thread_create_1(void){
++	int mypid;
++	printk(KERN_NOTICE "Peter: Calling kernel_thread(Peter_kernel_thread_1)\n");
++	mypid = kernel_thread(&__my_kernel_thread, "Peter_ktd_1", CLONE_FS | CLONE_FILES | CLONE_SIGHAND);
++	printk(KERN_NOTICE "Peter: Peter_kernel_thread_1 = %d\n", mypid);
++	return;
++}
++
++//added by Peter for CS680 homework #6
++static void my_kernel_thread_create_2(void){
++	int mypid;
++	printk(KERN_NOTICE "Peter: Calling kernel_thread(Peter_kernel_thread_2)\n");
++	mypid = kernel_thread(&__my_kernel_thread, "Peter_ktd_2", CLONE_FS | CLONE_FILES | CLONE_SIGHAND);
++	printk(KERN_NOTICE "Peter: Peter_kernel_thread_2 = %d\n", mypid);
++	return;
++}
++
++//added by Peter for CS680 homework #6
++static void toDo(void) {
++	struct task_struct *ps;
++	printk("Peter - UID\tPID\tPPID\tCMD\n");
++	ps = current;
++	printk("Peter -------------------------------------------------------------------\n");
++	read_lock(&tasklist_lock);
++	for_each_process(ps) {
++		printk("Peter - %d\t%d\t%d\t%s\n", ps->loginuid.val, ps->pid, ps->parent->pid, ps->comm);
++	}
++	read_unlock(&tasklist_lock);
++	printk("Peter -------------------------------------------------------------------\n");
++	return;
++}
++
++
+ static noinline void __init_refok rest_init(void)
+ {
+ 	int pid;
++// peter added 
++        struct task_struct *my_thread1;
++	struct task_struct *my_thread2;
++	struct task_struct *my_thread3;
+ 
+ 	rcu_scheduler_starting();
+ 	smpboot_thread_init();
+@@ -402,6 +441,31 @@
+ 	rcu_read_unlock();
+ 	complete(&kthreadd_done);
+ 
++
++//added by Peter
++	printk(KERN_NOTICE "Peter - CS680 homework #6, start ...\n");
++	printk(KERN_NOTICE "Peter: two threads are about to be created by kernel_thread func.\n");
++
++	my_kernel_thread_create_1();
++	my_kernel_thread_create_2();
++	printk(KERN_NOTICE "Peter: two threads are created by kernel_thread func.\n");
++
++	printk(KERN_NOTICE "Peter: three threads are about to be created by kthread_create func.\n");
++	my_thread1 = kthread_create(&__my_kernel_thread, "K_C_1", "Peter-KC1");
++	wake_up_process(my_thread1);
++	my_thread2 = kthread_create(&__my_kernel_thread, "K_C_2", "Peter-KC2");
++	wake_up_process(my_thread2);
++	my_thread3 = kthread_create(&__my_kernel_thread, "K_C_3", "Peter-KC3");
++	wake_up_process(my_thread3);
++	printk(KERN_INFO "Peter - This is %s\n", my_thread1->comm);
++	printk(KERN_INFO "Peter - This is %s\n", my_thread2->comm);
++	printk(KERN_INFO "Peter - This is %s\n", my_thread3->comm);
++	printk(KERN_NOTICE "Peter: three threads are created by kthread_create func.\n");
++
++	toDo();
++	printk(KERN_NOTICE "Peter - CS680 homework #6, end ...\n");
++//added by Peter
++
+ 	/*
+ 	 * The boot idle thread must execute schedule()
+ 	 * at least once to get things moving:
+diff -Naur ./linux-4.4.1/kernel/kthread.c ./linux-4.4.1_tmp/kernel/kthread.c
+--- ./linux-4.4.1/kernel/kthread.c	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/kernel/kthread.c	2017-10-07 20:53:45.487942870 +0800
+@@ -499,6 +499,41 @@
+ }
+ EXPORT_SYMBOL(kthread_stop);
+ 
++//added by Peter for CS680 homework #6
++int __my_kernel_thread(void *data){
++	struct task_struct *curtask = current;
++	set_task_comm(curtask, (char *) data);
++	ignore_signals(curtask);
++	set_cpus_allowed_ptr(curtask, cpu_all_mask);
++	set_mems_allowed(node_states[N_MEMORY]);
++	//__set_task_state(curtask, TASK_RUNNING);
++	printk(KERN_NOTICE "Peter: %s is being scheduled.\n", (char *) data);
++	for (;;) {
++		set_current_state(TASK_INTERRUPTIBLE);
++		if (list_empty(&kthread_create_list))
++			schedule();
++		__set_current_state(TASK_RUNNING);
++
++		spin_lock(&kthread_create_lock);
++		while (!list_empty(&kthread_create_list)) {
++			struct kthread_create_info *create;
++
++			create = list_entry(kthread_create_list.next,
++					    struct kthread_create_info, list);
++			list_del_init(&create->list);
++			spin_unlock(&kthread_create_lock);
++
++			create_kthread(create);
++
++			spin_lock(&kthread_create_lock);
++		}
++		spin_unlock(&kthread_create_lock);
++	}
++
++	return 0;
++}
++
++
+ int kthreadd(void *unused)
+ {
+ 	struct task_struct *tsk = current;
+diff -Naur ./linux-4.4.1/kernel/softirq.c ./linux-4.4.1_tmp/kernel/softirq.c
+--- ./linux-4.4.1/kernel/softirq.c	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/kernel/softirq.c	2017-10-07 21:05:44.884728876 +0800
+@@ -667,6 +667,26 @@
+ 	local_irq_enable();
+ }
+ 
++
++//added by Peter
++static void my_run_ksoftirqd(unsigned int cpu)
++{
++	printk("Peter my run ksoftirqd\n");
++	local_irq_disable();
++	if (local_softirq_pending()) {
++		/*
++		 * We can safely run softirq on inline stack, as we are not deep
++		 * in the task stack here.
++		 */
++		__do_softirq();
++		local_irq_enable();
++		cond_resched_rcu_qs();
++		return;
++	}
++	local_irq_enable();
++}
++
++
+ #ifdef CONFIG_HOTPLUG_CPU
+ /*
+  * tasklet_kill_immediate is called to remove a tasklet which can already be
+@@ -740,6 +760,24 @@
+ 	return NOTIFY_OK;
+ }
+ 
++//added by Peter
++static int my_cpu_callback(struct notifier_block *nfb, unsigned long action,
++			void *hcpu)
++{
++	printk("Peter, my cpu callback!\n");
++	switch (action) {
++#ifdef CONFIG_HOTPLUG_CPU
++	case CPU_DEAD:
++	case CPU_DEAD_FROZEN:
++		takeover_tasklets((unsigned long)hcpu);
++		break;
++#endif /* CONFIG_HOTPLUG_CPU */
++	}
++	return NOTIFY_OK;
++}
++
++
++
+ static struct notifier_block cpu_nfb = {
+ 	.notifier_call = cpu_callback
+ };
+@@ -751,6 +789,7 @@
+ 	.thread_comm		= "ksoftirqd/%u",
+ };
+ 
++
+ static __init int spawn_ksoftirqd(void)
+ {
+ 	register_cpu_notifier(&cpu_nfb);
+@@ -761,6 +800,30 @@
+ }
+ early_initcall(spawn_ksoftirqd);
+ 
++//added by Peter
++static struct notifier_block my_cpu_nfb = {
++	.notifier_call = my_cpu_callback
++};
++
++static struct smp_hotplug_thread my_softirq_threads = {
++	.store			= &my_ksoftirqd,
++	.thread_should_run	= my_ksoftirqd_should_run,
++	.thread_fn		= my_run_ksoftirqd,
++	.thread_comm		= "my_ksoftirqd/%u",
++};
++
++static __init int my_spawn_ksoftirqd(void)
++{
++	printk("peter, Enter my spawn ksoftirqd\n");
++	register_cpu_notifier(&my_cpu_nfb);
++
++	BUG_ON(smpboot_register_percpu_thread(&my_softirq_threads));
++
++	return 0;
++}
++early_initcall(my_spawn_ksoftirqd);
++//ended by Peter
++
+ /*
+  * [ These __weak aliases are kept in a separate compilation unit, so that
+  *   GCC does not inline them incorrectly. ]

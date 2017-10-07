@@ -1,0 +1,104 @@
+diff -Naur ./linux-4.4.1/include/linux/slab.h ./linux-4.4.1_tmp/include/linux/slab.h
+--- ./linux-4.4.1/include/linux/slab.h	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/include/linux/slab.h	2017-10-07 18:14:48.278141125 +0800
+@@ -110,6 +110,7 @@
+ /*
+  * struct kmem_cache related prototypes
+  */
++void peter_slabInfo(void);
+ void __init kmem_cache_init(void);
+ bool slab_is_available(void);
+ 
+diff -Naur ./linux-4.4.1/init/main.c ./linux-4.4.1_tmp/init/main.c
+--- ./linux-4.4.1/init/main.c	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/init/main.c	2017-10-07 18:16:46.177817598 +0800
+@@ -942,6 +942,8 @@
+ 	numa_default_policy();
+ 
+ 	flush_delayed_fput();
++        /** customized method **/
++        peter_slabInfo();
+ 
+ 	if (ramdisk_execute_command) {
+ 		ret = run_init_process(ramdisk_execute_command);
+diff -Naur ./linux-4.4.1/mm/slub.c ./linux-4.4.1_tmp/mm/slub.c
+--- ./linux-4.4.1/mm/slub.c	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/mm/slub.c	2017-10-07 18:15:55.683592468 +0800
+@@ -5555,3 +5555,77 @@
+ 	return -EIO;
+ }
+ #endif /* CONFIG_SLABINFO */
++
++
++
++void peter_slabInfo(void)
++{  
++    int i, j;
++    struct kmem_cache *s;
++    struct kmem_cache_node *n;
++    struct page *page;
++    int node;
++    //struct *page2;
++     
++    //statistics parameters
++    unsigned long nr_active_objs, nr_objs, obj_size, objs_per_slab, pages_per_slab, nr_active_slabs, nr_slabs, nr_free;
++     
++    unsigned long flags;
++    unsigned long p_active_objs, p_num_objs, p_active_slabs,p_num_slabs,  p_objects_per_slab,p_cache_order;
++   
++     
++   p_active_objs=0;
++   p_num_objs=0;
++   p_active_slabs=0;
++   p_num_slabs =0;
++   p_objects_per_slab=0;
++   p_cache_order=0;
++   
++  
++  
++    //KMALLOC_SHIFT_HIGH is 13 when using CONFIG_SLUB
++    for (i = 0; i <= KMALLOC_SHIFT_HIGH; i++) {
++        //initialize
++        nr_active_objs    = 0;
++        nr_objs           = 0;
++        obj_size          = 0;
++        objs_per_slab     = 0;
++        pages_per_slab    = 0;
++        nr_active_slabs   = 0;
++        nr_slabs          = 0;
++        nr_free           = 0;
++        
++         
++        s = kmalloc_caches[i];
++   
++        if (!s) {
++            continue;
++        }
++        
++    
++        for_each_kmem_cache_node(s,node,n){
++           
++
++            nr_free += count_partial(n,count_free);
++            nr_slabs += node_nr_slabs(n);
++            nr_objs += node_nr_objs(n);
++        } 
++        
++        p_active_objs = nr_objs - nr_free;
++        p_num_objs = nr_objs;
++        p_active_slabs = nr_slabs;
++        p_num_slabs = nr_slabs;
++        p_objects_per_slab = oo_objects(s->oo);
++        p_cache_order = oo_order(s->oo);
++          
++      
++        printk("Peter, %-17s %6lu %6lu %6u %4u %4d", s->name, p_active_objs, p_num_slabs,s->size ,p_objects_per_slab, (1<< p_cache_order));  
++  
++        printk(" : tunables %4u %4u %4u", 0,0,0);
++        printk(" : slabdata %6lu %6lu %6lu\n",p_active_slabs, p_num_slabs, 0UL);
++         
++
++     
++    }
++
++}

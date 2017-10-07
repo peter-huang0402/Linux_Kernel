@@ -1,0 +1,151 @@
+diff -Naur ./linux-4.4.1/fs/proc/Makefile ./linux-4.4.1_tmp/fs/proc/Makefile
+--- ./linux-4.4.1/fs/proc/Makefile	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/fs/proc/Makefile	2017-10-07 21:29:19.559229321 +0800
+@@ -21,6 +21,7 @@
+ proc-y	+= uptime.o
+ proc-y	+= version.o
+ proc-y	+= softirqs.o
++proc-y  += my_softirqs.o
+ proc-y	+= namespaces.o
+ proc-y	+= self.o
+ proc-y	+= thread_self.o
+diff -Naur ./linux-4.4.1/fs/proc/my_softirqs.c ./linux-4.4.1_tmp/fs/proc/my_softirqs.c
+--- ./linux-4.4.1/fs/proc/my_softirqs.c	1970-01-01 08:00:00.000000000 +0800
++++ ./linux-4.4.1_tmp/fs/proc/my_softirqs.c	2017-10-07 21:31:09.689565534 +0800
+@@ -0,0 +1,44 @@
++#include <linux/init.h>
++#include <linux/kernel_stat.h>
++#include <linux/proc_fs.h>
++#include <linux/seq_file.h>
++
++/*
++ * /proc/softirqs  ... display the number of softirqs
++ */
++static int my_show_softirqs(struct seq_file *p, void *v)
++{
++	int i, j;
++
++	seq_puts(p, "                    ");
++	for_each_possible_cpu(i)
++		seq_printf(p, "CPU%-8d", i);
++	seq_putc(p, '\n');
++
++	for (i = 0; i < NR_SOFTIRQS; i++) {
++		seq_printf(p, "%12s:", softirq_to_name[i]);
++		for_each_possible_cpu(j)
++			seq_printf(p, " %10u", my_kstat_softirqs_cpu(i, j));
++		seq_putc(p, '\n');
++	}
++	return 0;
++}
++
++static int my_softirqs_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, my_show_softirqs, NULL);
++}
++
++static const struct file_operations proc_my_softirqs_operations = {
++	.open		= my_softirqs_open,
++	.read		= seq_read,
++	.llseek		= seq_lseek,
++	.release	= single_release,
++};
++
++static int __init proc_my_softirqs_init(void)
++{
++	proc_create("my_softirqs", 0, NULL, &proc_my_softirqs_operations);
++	return 0;
++}
++fs_initcall(proc_my_softirqs_init);
+diff -Naur ./linux-4.4.1/include/linux/kernel_stat.h ./linux-4.4.1_tmp/include/linux/kernel_stat.h
+--- ./linux-4.4.1/include/linux/kernel_stat.h	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/include/linux/kernel_stat.h	2017-10-07 21:33:22.643557445 +0800
+@@ -31,6 +31,12 @@
+ 	NR_STATS,
+ };
+ 
++//peter insert
++struct CpuSoftirq{
++   	unsigned int count[NR_SOFTIRQS];
++};
++
++
+ struct kernel_cpustat {
+ 	u64 cpustat[NR_STATS];
+ };
+@@ -43,12 +49,20 @@
+ DECLARE_PER_CPU(struct kernel_stat, kstat);
+ DECLARE_PER_CPU(struct kernel_cpustat, kernel_cpustat);
+ 
++// peter insert
++DECLARE_PER_CPU(struct CpuSoftirq, my_cpuSoftirq);
++
++
+ /* Must have preemption disabled for this to be meaningful. */
+ #define kstat_this_cpu this_cpu_ptr(&kstat)
+ #define kcpustat_this_cpu this_cpu_ptr(&kernel_cpustat)
+ #define kstat_cpu(cpu) per_cpu(kstat, cpu)
+ #define kcpustat_cpu(cpu) per_cpu(kernel_cpustat, cpu)
+ 
++// peter insert
++#define my_cpuSoftirq_this_cpu this_cpu_ptr(&my_cpuSoftirq)
++#define my_kstat_cpu(cpu) per_cpu( my_cpuSoftirq, cpu)
++
+ extern unsigned long long nr_context_switches(void);
+ 
+ extern unsigned int kstat_irqs_cpu(unsigned int irq, int cpu);
+@@ -59,6 +73,12 @@
+ 	__this_cpu_inc(kstat.softirqs[irq]);
+ }
+ 
++// peter insert
++static inline void my_kstat_incr_softirqs_this_cpu(unsigned int irq)
++{
++	__this_cpu_inc( my_cpuSoftirq.count[irq]);
++}
++
+ static inline unsigned int kstat_softirqs_cpu(unsigned int irq, int cpu)
+ {
+        return kstat_cpu(cpu).softirqs[irq];
+@@ -78,6 +98,14 @@
+ 	return kstat_cpu(cpu).irqs_sum;
+ }
+ 
++
++// peter insert
++static inline unsigned int my_kstat_softirqs_cpu(unsigned int irq, int cpu)
++{
++       return  my_kstat_cpu(cpu).count[irq];
++}
++
++
+ extern void account_user_time(struct task_struct *, cputime_t, cputime_t);
+ extern void account_system_time(struct task_struct *, int, cputime_t, cputime_t);
+ extern void account_steal_time(cputime_t);
+diff -Naur ./linux-4.4.1/kernel/sched/core.c ./linux-4.4.1_tmp/kernel/sched/core.c
+--- ./linux-4.4.1/kernel/sched/core.c	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/kernel/sched/core.c	2017-10-07 21:36:48.156454273 +0800
+@@ -2811,6 +2811,10 @@
+ EXPORT_PER_CPU_SYMBOL(kstat);
+ EXPORT_PER_CPU_SYMBOL(kernel_cpustat);
+ 
++// peter insert
++DEFINE_PER_CPU(struct CpuSoftirq, my_cpuSoftirq);
++EXPORT_PER_CPU_SYMBOL(my_cpuSoftirq);
++
+ /*
+  * Return accounted runtime for the task.
+  * In case the task is currently running, return the runtime plus current's
+diff -Naur ./linux-4.4.1/kernel/softirq.c ./linux-4.4.1_tmp/kernel/softirq.c
+--- ./linux-4.4.1/kernel/softirq.c	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/kernel/softirq.c	2017-10-07 21:34:16.506744046 +0800
+@@ -269,6 +269,9 @@
+ 
+ 		kstat_incr_softirqs_this_cpu(vec_nr);
+ 
++                // peter insert  
++		my_kstat_incr_softirqs_this_cpu(vec_nr);
++
+ 		trace_softirq_entry(vec_nr);
+ 		h->action(h);
+ 		trace_softirq_exit(vec_nr);

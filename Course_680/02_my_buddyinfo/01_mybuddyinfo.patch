@@ -1,0 +1,139 @@
+diff -Naur ./linux-4.4.1/init/main.c ./linux-4.4.1_tmp/init/main.c
+--- ./linux-4.4.1/init/main.c	2016-02-01 03:29:37.000000000 +0800
++++ ./linux-4.4.1_tmp/init/main.c	2017-10-07 17:46:41.642583432 +0800
+@@ -678,6 +678,11 @@
+ 	}
+ 
+ 	ftrace_init();
++        
++        printk(KERN_INFO ": Peter Huang: show_mem(1)--Start\n"); 
++        show_mem_peter(1);
++        my_buddyinfo();  
++        printk(KERN_INFO ": Peter Huang: show_mem(1)--End\n");
+ 
+ 	/* Do the rest non-__init'ed, we're now alive */
+ 	rest_init();
+@@ -1038,3 +1043,57 @@
+ 	integrity_load_keys();
+ 	load_default_modules();
+ }
++
++
++void my_buddyinfo(void){
++   
++   
++    int i=0;
++    int j=0;
++    int result = -1;
++    struct pglist_data* p_node;
++    struct zone* p_zone;
++    struct free_area* p_freearea;
++    char moveable_s[] = "Movable";
++    
++    printk("##### Peter, Huang my buddyinfo #####\n");
++
++   p_node = NODE_DATA(0);
++
++    if (p_node  == NULL){
++        return ;
++    }
++
++    for (i = 0; i < MAX_NR_ZONES; ++i){
++
++        p_zone = &p_node->node_zones[i];
++
++        if (p_zone == NULL){
++            continue;
++        }
++             
++        result = strcmp(p_zone->name, moveable_s);
++        if (result ==0 ){
++            continue;
++          // is same
++        }else{
++          //not same
++        }    
++
++        printk("Node 0 Zone %s", p_zone->name);
++        p_freearea = &p_zone->free_area;
++
++        if (p_freearea == NULL){
++            continue;
++        }
++        for (j = 0; j < MAX_ORDER; ++j){
++            printk("%5lu", (p_freearea+j)->nr_free);
++        }
++
++        printk("\n");
++    }
++
++    printk("##### Peter, Huang end my buddyinfo ######\n");
++  
++
++}
+diff -Naur ./linux-4.4.1/lib/show_mem_peter.c ./linux-4.4.1_tmp/lib/show_mem_peter.c
+--- ./linux-4.4.1/lib/show_mem_peter.c	1970-01-01 08:00:00.000000000 +0800
++++ ./linux-4.4.1_tmp/lib/show_mem_peter.c	2017-10-07 17:45:41.049761646 +0800
+@@ -0,0 +1,62 @@
++/*
++ *
++ */
++
++ /*
++ Peter.    linux_XXX./lib/show_mem.c
++
++ grep -rl "show_mem("  .
++ find ./ -name show_mem.c
++
++
++ */
++
++#include <linux/mm.h>
++#include <linux/quicklist.h>
++#include <linux/cma.h>
++#include <linux/module.h>
++
++
++void show_mem_peter(unsigned int filter)
++{
++	pg_data_t *pgdat;
++	unsigned long total = 0, reserved = 0, highmem = 0;
++
++	printk("Wei-chang, Huang, Mem-Info:\n");
++	show_free_areas(filter);
++
++	for_each_online_pgdat(pgdat) {
++		unsigned long flags;
++		int zoneid;
++
++		pgdat_resize_lock(pgdat, &flags);
++		for (zoneid = 0; zoneid < MAX_NR_ZONES; zoneid++) {
++			struct zone *zone = &pgdat->node_zones[zoneid];
++			if (!populated_zone(zone))
++				continue;
++
++			total += zone->present_pages;
++			reserved += zone->present_pages - zone->managed_pages;
++
++			if (is_highmem_idx(zoneid))
++				highmem += zone->present_pages;
++		}
++		pgdat_resize_unlock(pgdat, &flags);
++	}
++
++	printk("%lu pages RAM, Peter Huang.\n", total);
++	printk("%lu pages HighMem/MovableOnly,Peter Huang\n", highmem);
++	printk("%lu pages reserved, Peter, Huang\n", reserved);
++#ifdef CONFIG_CMA
++	printk("%lu pages cma reserved, Peter Huang\n", totalcma_pages);
++#endif
++#ifdef CONFIG_QUICKLIST
++	printk("%lu pages in pagetable cache, Peter Huang\n",
++		quicklist_total_size());
++#endif
++#ifdef CONFIG_MEMORY_FAILURE
++	printk("%lu pages hwpoisoned, Peter Huang\n", atomic_long_read(&num_poisoned_pages));
++#endif
++}
++
++EXPORT_SYMBOL_GPL( show_mem_peter );
