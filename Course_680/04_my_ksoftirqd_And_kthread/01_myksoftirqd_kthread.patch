@@ -244,16 +244,25 @@ diff -Naur ./linux-4.4.1/kernel/softirq.c ./linux-4.4.1_tmp/kernel/softirq.c
  /*
   * [ These __weak aliases are kept in a separate compilation unit, so that
   *   GCC does not inline them incorrectly. ]
+  */
   
-  /** some patches missing in my previous files, I added them again in this patch!!! **/
+  /***************************************************************************** 
+  some patches missing in my previous files, I added them again in this patch!!! 
+  ***************************************************************************** /
   
   static void wakeup_softirqd(void)
 {
 	/* Interrupts are disabled: no need to stop preemption */
 	struct task_struct *tsk = __this_cpu_read(ksoftirqd);
-+//added by Peter
-+struct task_struct *my_tsk = __this_cpu_read(my_ksoftirqd);
++       // added by Peter
++       struct task_struct *my_tsk = __this_cpu_read(my_ksoftirqd);
  
+	if (tsk && tsk->state != TASK_RUNNING)
+		wake_up_process(tsk);
+	
+	if (my_tsk && my_tsk->state != TASK_RUNNING)
+		wake_up_process(my_tsk);
+}
  
 +//added by Peter
 +static int my_ksoftirqd_should_run(unsigned int cpu)
